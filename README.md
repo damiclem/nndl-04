@@ -1,2 +1,2 @@
 # nndl04
-Homework 04 for the course Neural Networks and Deep Learning: creating an autoencoder for digits reconstruction
+Fourth (4) homework for the course Neural Networks and Deep Learning: developing, training and testing an autoencoder for handwritten digits reconstruction
