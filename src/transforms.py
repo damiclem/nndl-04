@@ -51,6 +51,31 @@ class AddSaltPepperNoise(object):
         return tensor
 
 
+# Add block noide to tensor image
+class AddBlockNoise(object):
+
+    # Constructor
+    def __init__(self, percentage, scale=(0.0, 1.0)):
+        # Percentage of deactivated block size (for each image edge)
+        self.prc = percentage
+        # Get minimum and maximum scale values
+        self.min, self.max = scale
+
+    def __call__(self, tensor):
+        # Define rows(n) and columns (m)
+        n, m = tuple(tensor.squeeze().size())
+        # Define block edge (prc * n) and base (prc * m) sizes
+        e, b = int(self.prc * n), int(self.prc * m)
+        # Choose at random an index on the rows
+        i = np.random.choice(n - e)
+        # Choose at random an index of the columns
+        j = np.random.choice(m - b)
+        # Fully deactivate the selected region
+        tensor[0, i:i+e, j:j+b] = self.min
+        # Return noised tensor
+        return tensor
+
+
 # Clamp input tensor values to a given interval
 class ClampTensor(object):
 
