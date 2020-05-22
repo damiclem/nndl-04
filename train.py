@@ -33,15 +33,28 @@ import sys
 import os
 
 
+### Settings
+
+MODEL_NAME = 'One'
+MODEL_WEIGHTS_PATH = './data/models/{0:s}/weights.pth'
+MODEL_SETTINGS_PATH = './data/models/{0:s}/settings.json'
+MODEL_PROGRESS_PATH = './data/models/{0:s}/progress/{1:s}'
+MNIST_PATH = './data/MNIST.mat'
+
+
 ### Set random seed
+
+# Numpy random seed
 np.random.seed(42)
+
+# Pytorch random seed
 torch.manual_seed(42)
 
 
 ### Create dataset
 
 # Retrieve input MNIST dataset
-mnist_dataset = MNIST('./data/MNIST.mat')
+mnist_dataset = MNIST(MNIST_PATH)
 
 # Split input MNIST dataset
 train_dataset, test_dataset = MNIST.train_test_split(mnist_dataset, test_size=0.2)
@@ -126,7 +139,7 @@ net = Autoencoder(
     decoder_lin=decoder_lin, decoder_cnn=decoder_cnn,
     lin_to_cnn=(32, 3, 3)
 )
-# Show the networ
+# Show the network
 print(net)
 
 ### Some examples
@@ -148,11 +161,11 @@ train_dataloader = DataLoader(train_dataset, batch_size=512, shuffle=True)
 test_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=False)
 
 ### Define a loss function
-loss_fn = torch.nn.MSELoss()
+# loss_fn = torch.nn.MSELoss()
+loss_fn = torch.nn.BCELoss()
 
 ### Define an optimizer
-lr = 1e-3 # Learning rate
-optim = torch.optim.Adam(net.parameters(), lr=lr, weight_decay=1e-5)
+optim = torch.optim.Adam(net.parameters(), lr=3e-3, weight_decay=1e-5)
 
 # Get reference to cpu default device
 cpu = torch.device('cpu')
@@ -204,7 +217,7 @@ net.to(device)
 ### Training cycle
 
 # Define 10 sample images
-sampled_test_indices = np.random.choice(len(test_dataset), 7)
+test_indices = np.random.choice(len(test_dataset), 10)
 
 # Loop through each training epoch
 training = True
@@ -224,11 +237,11 @@ if training:
         ### Plot progress
 
         # Initialize plot
-        fig, axs = plt.subplots(2, len(sampled_test_indices), figsize=(21, 4))
+        fig, axs = plt.subplots(2, len(test_indices), figsize=(20, 4))
         # Loop through each column
-        for j in range(len(sampled_test_indices)):
+        for j in range(len(test_indices)):
             # Get a random row in test dataset
-            k = sampled_test_indices[j]
+            k = test_indices[j]
             # Ret j-th row of test dataset
             out_label, out_image, in_image = test_dataset[k]
             # Reshape input image
@@ -249,13 +262,13 @@ if training:
         plt.tight_layout()
         plt.pause(0.1)
         # Save figures
-        os.makedirs('autoencoder_progress_%d_features' % encoded_space_dim, exist_ok=True)
-        plt.savefig('autoencoder_progress_%d_features/epoch_%d.png' % (encoded_space_dim, epoch + 1))
+        os.makedirs(MODEL_PROGRESS_PATH.format(MODEL_NAME, ''), exist_ok=True)
+        plt.savefig(MODEL_PROGRESS_PATH.format(MODEL_NAME, 'epoch{:03d}'.format(epoch + 1)))
         plt.show()
         plt.close()
 
         # Save network parameters
-        torch.save(net.state_dict(), 'net_params.pth')
+        torch.save(net.state_dict(), MODEL_WEIGHTS_PATH.format(MODEL_NAME))
 
 
 ### Network analysis
@@ -263,7 +276,7 @@ if training:
 # Put network on CPU
 net.to(cpu)
 # Load network parameters
-net.load_state_dict(torch.load('net_params.pth', map_location='cpu'))
+net.load_state_dict(torch.load(MODEL_WEIGHTS_PATH.format(MODEL_NAME), map_location='cpu'))
 
 ### Get the encoded representation of the test samples
 encoded_samples = []
@@ -280,17 +293,17 @@ for sample in tqdm(test_dataset):
 
 ### Visualize encoded space
 color_map = {
-        0: '#1f77b4',
-        1: '#ff7f0e',
-        2: '#2ca02c',
-        3: '#d62728',
-        4: '#9467bd',
-        5: '#8c564b',
-        6: '#e377c2',
-        7: '#7f7f7f',
-        8: '#bcbd22',
-        9: '#17becf'
-        }
+    0: '#1f77b4',
+    1: '#ff7f0e',
+    2: '#2ca02c',
+    3: '#d62728',
+    4: '#9467bd',
+    5: '#8c564b',
+    6: '#e377c2',
+    7: '#7f7f7f',
+    8: '#bcbd22',
+    9: '#17becf'
+}
 
 # Plot just 1k points
 encoded_samples_reduced = random.sample(encoded_samples, 1000)

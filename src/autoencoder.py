@@ -10,8 +10,8 @@ import numpy as np
 class Autoencoder(nn.Module):
 
     def __init__(
-        self, encoder_cnn, encoder_lin,
-        decoder_lin, decoder_cnn, lin_to_cnn
+        self, encoder_cnn, encoder_lin, decoder_lin, decoder_cnn, lin_to_cnn,
+        last_activation=torch.sigmoid
     ):
         # Parent constructor (mandatory)
         super().__init__()
@@ -19,45 +19,23 @@ class Autoencoder(nn.Module):
         # Store linear to convolutional reshape size
         self.lin_to_cnn = lin_to_cnn
 
+        # Store last (decoder) layer activation function
+        # NOTE it might be useless for some losses (e.g. BCE with logit)
+        self.last_activation = last_activation
+
         # Encoder layer deconstructs image and extracts features
         # Decoder layer reconstructs image from features
         # Encoder and decoder are specular
 
         # Encoder - convolutional
         self.encoder_cnn = encoder_cnn
-        # self.encoder_cnn = nn.Sequential(
-        #     nn.Conv2d(1, 8, 3, stride=2, padding=1),
-        #     nn.ReLU(True),
-        #     nn.Conv2d(8, 16, 3, stride=2, padding=1),
-        #     nn.ReLU(True),
-        #     nn.Conv2d(16, 32, 3, stride=2, padding=0),
-        #     nn.ReLU(True)
-        # )
         # Encoder - linear
         self.encoder_lin = encoder_lin
-        # self.encoder_lin = nn.Sequential(
-        #     nn.Linear(3 * 3 * 32, 64),
-        #     nn.ReLU(True),
-        #     nn.Linear(64, encoded_space_dim)
-        # )
 
         # Decoder - linear
         self.decoder_lin = decoder_lin
-        # self.decoder_lin = nn.Sequential(
-        #     nn.Linear(encoded_space_dim, 64),
-        #     nn.ReLU(True),
-        #     nn.Linear(64, 3 * 3 * 32),
-        #     nn.ReLU(True)
-        # )
         # Decoder - convolutional
         self.decoder_cnn = decoder_cnn
-        # self.decoder_cnn = nn.Sequential(
-        #     nn.ConvTranspose2d(32, 16, 3, stride=2, output_padding=0),
-        #     nn.ReLU(True),
-        #     nn.ConvTranspose2d(16, 8, 3, stride=2, padding=1, output_padding=1),
-        #     nn.ReLU(True),
-        #     nn.ConvTranspose2d(8, 1, 3, stride=2, padding=1, output_padding=1)
-        # )
 
     @property
     def lin_to_cnn(self):
@@ -92,13 +70,16 @@ class Autoencoder(nn.Module):
         x = x.view([-1, *self.lin_to_cnn])
         # Apply transposed convolutions
         x = self.decoder_cnn(x)
-        x = torch.sigmoid(x)
+        # Apply activation function
+        x = self.last_activation(x)
         return x
 
     # Train network on a single epoch
     def train_epoch(self, dataloader, loss_fn, optimizer, device):
         # Set network in training mode
         self.train()
+        # Define partial losses container
+        losses = list()
         # Loop through each batch in DataLoader
         for sample_batch in dataloader:
             # Extract images and associated label
@@ -111,7 +92,11 @@ class Autoencoder(nn.Module):
             loss.backward()
             optimizer.step()
             # Print loss
-            print('\t partial train loss: %f' % (loss.data))
+            # print('\t partial train loss: %f' % (loss.data))
+            # Store current batch mean loss
+            losses.append(loss.data.item())
+        # Return partial losses
+        return losses
 
 
     # Test network on a single epoch
@@ -141,7 +126,7 @@ class Autoencoder(nn.Module):
             # Evaluate global loss
             val_loss = loss_fn(conc_pred, conc_true)
         # Return mean loss
-        return val_loss.data
+        return val_loss.data.item()
 
 
 
