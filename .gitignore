@@ -133,5 +133,6 @@ data/*
 data/models/*
 
 # Include best models
-data/models/best_ae
-data/models/best_vae
+!data/models
+!data/models/best_ae
+!data/models/best_vae
