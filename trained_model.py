@@ -4,18 +4,18 @@ from src.dataset import MNIST
 from src.network import VariationalAutoEncoder as VAE
 from src.network import AutoEncoder as AE
 from torch.utils.data import DataLoader
-from torch import nn
 import argparse
 import torch
 import os
 
+
 # Main
 if __name__ == '__main__':
 
-    # Define project root path
-    ROOT_PATH = os.path.dirname(__file__)
-    # Define data folder path
-    DATA_PATH = ROOT_PATH + '/data'
+    # Define path to data folder
+    DATA_PATH = './data'
+    # Define path to models folder
+    MODEL_PATH = DATA_PATH + '/models'
 
     # Initialize argument parser
     parser = argparse.ArgumentParser(description='Test trained model for digits reconstruction')
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     )
     # Add argument: path to model (best autoencoder)
     parser.add_argument(
-        '--model_path', type=str, default=DATA_PATH+'best_model.pth',
+        '--model_path', type=str, default=MODEL_PATH + '/best_vae',
         help='Path to trained model weights'
     )
     # Add argument: test data
@@ -86,8 +86,10 @@ if __name__ == '__main__':
     latent_dim = int(args.num_latent)
     # Define autoencoder
     net = VAE(latent_dim) if args.variational else AE(latent_dim)
+    # Define path to model
+    net_path = os.path.join(args.model_path, 'params.pth')
     # Load weights from given model path
-    net.load_state_dict(torch.load(args.model_path))
+    net.load_state_dict(torch.load(net_path))
     # Move autoencoder to given device
     net.to(device)
 

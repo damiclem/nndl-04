@@ -1,7 +1,7 @@
 # Dependencies
 from src.dataset import MNIST, ToTensor, train_test_split
 from torch.utils.data import DataLoader
-from torch.nn.functional import binary_cross_entropy
+from torch.nn.functional import mse_loss, binary_cross_entropy
 from torch import nn, optim
 import torch
 import matplotlib.pyplot as plt
@@ -128,7 +128,7 @@ class AutoEncoder(nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def train_batch(self, batch, loss_fn, optim=None, eval=False):
+    def train_batch(self, batch, loss_fn, optim=None, ret_images=False, eval=False):
         """ Train network on a single batch
 
         Args
@@ -136,10 +136,12 @@ class AutoEncoder(nn.Module):
                                 images tensor and output images tensor
         loss_fn (nn.Module)     Loss function instance
         optim (nn.Module)       Optimizer used during weights update
+        ret_images (bool)       Wether to return test images either
         eval (bool)             Wether to do training or evaluation (test)
 
         Return
         (float)                 Current batch loss
+        (torch.Tensor)          Eventually return reconstructed images either
 
         Raise
         (ValueError)            In case training mode has been chosen without
@@ -171,21 +173,28 @@ class AutoEncoder(nn.Module):
             # Update weights
             optim.step()
 
+        # Case images have been required
+        if ret_images:
+            # Return either loss and images
+            return float(loss.data), net_images
+
         # Return loss
         return float(loss.data)
 
-    def test_batch(self, batch, loss_fn):
+    def test_batch(self, batch, loss_fn, ret_images=False):
         """ Test network on a single batch
 
         Args
         batch (tuple)           Tuple containing output labels tensor, input
                                 images tensor and output images tensor
         loss_fn (nn.Module)     Loss function instance
+        ret_images (bool)       Wether to return test images either
 
         Return
         (float)                 Current batch loss
+        (torch.Tensor)          Eventually return reconstructed images either
         """
-        return self.train_batch(batch, loss_fn, optim=None, eval=True)
+        return self.train_batch(batch, loss_fn, optim=None, ret_images=ret_images, eval=True)
 
     def train_epoch(self, dataloader, loss_fn, optim=None, eval=False):
         """ Train network on all the batches in a single epoch
@@ -344,14 +353,17 @@ class VariationalAutoEncoder(AutoEncoder):
         Return
         (torch.Tensor)              Computed losses
         """
-        # BCE: reconstruction loss
+        # Reconstruction loss: BCE
         bce = binary_cross_entropy(x_pred, x_true, reduction='sum')
+        # # Reconstruction loss: MSE
+        # mse = mse_loss(x_pred, x_true, reduction='mean')
         # KLD: Kullback-Leibler divergence (regularization)
         kld = 0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         # Return loss
         return bce - kld
+        # return mse - kld
 
-    def train_batch(self, batch, loss_fn, optim=None, eval=False):
+    def train_batch(self, batch, loss_fn, optim=None, ret_images=False, eval=False):
         """ Train network on a single batch
 
         Args
@@ -359,10 +371,12 @@ class VariationalAutoEncoder(AutoEncoder):
                                 images tensor and output images tensor
         loss_fn (nn.Module)     Loss function instance
         optim (nn.Module)       Optimizer used during weights update
+        ret_images (bool)       Wether to return test images either
         eval (bool)             Wether to do training or evaluation (test)
 
         Return
         (float)                 Current batch loss
+        (torch.Tensor)          Eventually return reconstructed images either
 
         Raise
         (ValueError)            In case training mode has been chosen without
@@ -377,17 +391,20 @@ class VariationalAutoEncoder(AutoEncoder):
         device = self.device
         # Retrieve output labels, input image and output image
         out_labels, in_images, out_images = batch
-        # # Debug
-        # print('Output label shape:', out_labels.shape)
-        # print('Input images shape:', in_images.shape)
-        # print('Output images shape:', out_images.shape)
         # Move input and output images to device
         in_images, out_images = in_images.to(device), out_images.to(device)
 
         # Make forward pass
         net_images, mu, logvar = self(in_images)
-        # Compute loss
-        loss = loss_fn(net_images, out_images, mu, logvar)
+
+        # Case loss function is not the regularized one (e.g. MSE)
+        if loss_fn != self.loss_fn:
+            # Give only reconstructed images to loss
+            loss = loss_fn(net_images, out_images)
+        # Case loss function is the regularized one
+        if loss_fn == self.loss_fn:
+            # Compute loss using either distribution parameters
+            loss = loss_fn(net_images, out_images, mu, logvar)
 
         # Training mode
         if not eval:
@@ -398,12 +415,17 @@ class VariationalAutoEncoder(AutoEncoder):
             # Update weights
             optim.step()
 
+        # Case images have been required
+        if ret_images:
+            # Return either loss and images
+            return float(loss.data), net_images
+
         # Return loss
         return float(loss.data)
 
 
-def train_test_epochs(net, loss_fn, optim, train_data, test_data, num_epochs=100, step_epochs=1):
-    """ Train and test the network iteratively
+def train_test_epoch(net, loss_fn, optim, train_data, test_data):
+    """ Train and test the network over a single epoch
 
     Args
     net (nn.Module)             Network to be trained and tested
@@ -411,58 +433,58 @@ def train_test_epochs(net, loss_fn, optim, train_data, test_data, num_epochs=100
     optim (nn.Module)           Optimizer used during weights update
     train_data (DataLoader)     Training dataset loader
     test_data (DataLoader)      Test dataset loader
-    num_epochs (int)            Maximum number of epochs
-    step_epochs (int)           After how many epochs results must be yielded
 
     Return
-    (generator)                 Generator yielding training and test results
-                                at each defined step
-
-    Raise
-    (ValueError)                In case number of epochs is less than 1
+    (float)                     Training loss for current epoch
+    (float)                     Training time for current epoch
+    (float)                     Test loss for current epoch
+    (float)                     Test time for current epoch
     """
-    # Check given number of epochs
-    if not isinstance(num_epochs, int) or num_epochs < 1:
-        # Raise exception
-        raise ValueError('given number of epochs is not valid')
+    # # Check given number of epochs
+    # if not isinstance(num_epochs, int) or num_epochs < 1:
+    #     # Raise exception
+    #     raise ValueError('given number of epochs is not valid')
 
-    # Check givem step
-    if not isinstance(step_epochs, int) or step_epochs < 1:
-        # Raise exception
-        raise ValueError('given epochs step is not valid')
+    # # Check givem step
+    # if not isinstance(step_epochs, int) or step_epochs < 1:
+    #     # Raise exception
+    #     raise ValueError('given epochs step is not valid')
 
-    # Loop through each epoch
-    for i in range(0, num_epochs, step_epochs):
-        # Initialize list of epoch training losses and times
-        train_losses, train_times = [], []
-        # Initialize list of epoch test losses and times
-        test_losses, test_times = [], []
+    # # Loop through each epoch
+    # for i in range(0, num_epochs, step_epochs):
+    #     # Initialize list of epoch training losses and times
+    #     train_losses, train_times = [], []
+    #     # Initialize list of epoch test losses and times
+    #     test_losses, test_times = [], []
 
-        # Loop through each epoch in current step
-        for j in range(i, min(num_epochs, i + step_epochs)):
-            # Make training, retrieve mean loss and total time
-            train_loss, train_time = net.train_epoch(
-                dataloader=train_data,
-                loss_fn=loss_fn,
-                optim=optim
-            )
-            # Store training loss and time
-            train_losses.append(train_loss)
-            train_times.append(train_time)
+    # # Loop through each epoch in current step
+    # for j in range(i, min(num_epochs, i + step_epochs)):
+    # Make training, retrieve mean loss and total time
+    train_loss, train_time = net.train_epoch(
+        dataloader=train_data,
+        loss_fn=loss_fn,
+        optim=optim
+    )
+    # # Store training loss and time
+    # train_losses.append(train_loss)
+    # train_times.append(train_time)
 
-            # Disable gradient computation
-            with torch.no_grad():
-                # Make evaluation, retrieve mean loss and total time
-                test_loss, test_time = net.test_epoch(
-                    dataloader=test_data,
-                    loss_fn=loss_fn
-                )
-                # Store test loss and time
-                test_losses.append(test_loss)
-                test_times.append(test_time)
+    # Disable gradient computation
+    with torch.no_grad():
+        # Make evaluation, retrieve mean loss and total time
+        test_loss, test_time = net.test_epoch(
+            dataloader=test_data,
+            loss_fn=loss_fn
+        )
+    # # Store test loss and time
+    # test_losses.append(test_loss)
+    # test_times.append(test_time)
 
-        # Yield results
-        yield j, train_losses, train_times, test_losses, test_times
+    # # Yield results
+    # yield j, train_losses, train_times, test_losses, test_times
+
+    # Return results
+    return train_loss, train_time, test_loss, test_time
 
 
 # Test
@@ -513,36 +535,36 @@ if __name__ == '__main__':
     print('Decoded image shape (AE):', decoded.shape)
     print()
 
-    # Initialize results table
-    results = {'train_loss': [], 'train_time': [], 'test_loss': [], 'test_time': []}
-    # Define iterator
-    step_iter = tqdm.tqdm(desc='Training', iterable=train_test_epochs(
-        net=net, loss_fn=loss_fn, optim=optimizer, num_epochs=10,
-        train_data=DataLoader(train_dataset, batch_size=1000, shuffle=True),
-        test_data=DataLoader(test_dataset, batch_size=1000, shuffle=False)
-    ))
-    # Make training and evaluation
-    for step_results in step_iter:
-        # Store current results
-        results['train_loss'] += step_results[0]
-        results['train_time'] += step_results[1]
-        results['test_loss'] += step_results[2]
-        results['test_time'] += step_results[3]
-
-    # Initialize plot: show loss
-    fig, ax = plt.subplots(figsize=(25, 5))
-    # Retrieve y train and y test
-    y_train = results['train_loss']
-    y_test = results['test_loss']
-    # Plot train loss
-    ax.plot(range(1, len(y_train) + 1), y_train, '-')
-    ax.plot(range(1, len(y_test) + 1), y_test, '-')
-    # Add title and labels
-    ax.set_title('Loss per epoch: train vs test')
-    ax.set_ylabel('Loss')
-    ax.set_xlabel('Epoch')
-    # Show plot
-    plt.show()
+    # # Initialize results table
+    # results = {'train_loss': [], 'train_time': [], 'test_loss': [], 'test_time': []}
+    # # Define iterator
+    # step_iter = tqdm.tqdm(desc='Training', iterable=train_test_epochs(
+    #     net=net, loss_fn=loss_fn, optim=optimizer, num_epochs=10,
+    #     train_data=DataLoader(train_dataset, batch_size=1000, shuffle=True),
+    #     test_data=DataLoader(test_dataset, batch_size=1000, shuffle=False)
+    # ))
+    # # Make training and evaluation
+    # for step_results in step_iter:
+    #     # Store current results
+    #     results['train_loss'] += step_results[0]
+    #     results['train_time'] += step_results[1]
+    #     results['test_loss'] += step_results[2]
+    #     results['test_time'] += step_results[3]
+    #
+    # # Initialize plot: show loss
+    # fig, ax = plt.subplots(figsize=(25, 5))
+    # # Retrieve y train and y test
+    # y_train = results['train_loss']
+    # y_test = results['test_loss']
+    # # Plot train loss
+    # ax.plot(range(1, len(y_train) + 1), y_train, '-')
+    # ax.plot(range(1, len(y_test) + 1), y_test, '-')
+    # # Add title and labels
+    # ax.set_title('Loss per epoch: train vs test')
+    # ax.set_ylabel('Loss')
+    # ax.set_xlabel('Epoch')
+    # # Show plot
+    # plt.show()
 
     # Define variational autoencoder
     vae = VariationalAutoEncoder(latent_dim=2)
